@@ -113,9 +113,9 @@ async def friseur_agent(ctx: JobContext):
             model="nova-3",
             language="de",
         ),
-        # OpenRouter LLM - GPT-4.1 mini
+        # OpenRouter LLM - GPT-4.1
         llm=openai.LLM.with_openrouter(
-            model="openai/gpt-4.1-mini",
+            model="openai/gpt-4.1",
         ),
         # Deepgram TTS - Aura 2 Viktoria (Deutsch) - EU Endpoint
         tts=deepgram.TTS(
@@ -129,7 +129,10 @@ async def friseur_agent(ctx: JobContext):
         preemptive_generation=True,
     )
 
-    # Session starten
+    # ZUERST mit Room verbinden
+    await ctx.connect()
+
+    # DANN Session starten
     await session.start(
         agent=FriseurAssistant(),
         room=ctx.room,
@@ -142,9 +145,6 @@ async def friseur_agent(ctx: JobContext):
             ),
         ),
     )
-
-    # Mit Room verbinden
-    await ctx.connect()
 
 
 if __name__ == "__main__":

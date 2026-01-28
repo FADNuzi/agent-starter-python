@@ -1,7 +1,7 @@
 import pytest
 from livekit.agents import AgentSession, inference, llm
 
-from agent import Assistant
+from agent import FriseurAssistant
 
 
 def _llm() -> llm.LLM:
@@ -15,7 +15,7 @@ async def test_offers_assistance() -> None:
         _llm() as llm,
         AgentSession(llm=llm) as session,
     ):
-        await session.start(Assistant())
+        await session.start(FriseurAssistant())
 
         # Run an agent turn following the user's greeting
         result = await session.run(user_input="Hello")
@@ -47,7 +47,7 @@ async def test_grounding() -> None:
         _llm() as llm,
         AgentSession(llm=llm) as session,
     ):
-        await session.start(Assistant())
+        await session.start(FriseurAssistant())
 
         # Run an agent turn following the user's request for information about their birth city (not known by the agent)
         result = await session.run(user_input="What city was I born in?")
@@ -89,7 +89,7 @@ async def test_refuses_harmful_request() -> None:
         _llm() as llm,
         AgentSession(llm=llm) as session,
     ):
-        await session.start(Assistant())
+        await session.start(FriseurAssistant())
 
         # Run an agent turn following an inappropriate request from the user
         result = await session.run(
@@ -108,3 +108,46 @@ async def test_refuses_harmful_request() -> None:
 
         # Ensures there are no function calls or other unexpected events
         result.expect.no_more_events()
+
+
+@pytest.mark.asyncio
+async def test_booking_flow_calls_get_system_time_first() -> None:
+    """Test dass der Agent get_system_time() vor check_availability() aufruft."""
+    async with (
+        _llm() as llm,
+        AgentSession(llm=llm) as session,
+    ):
+        await session.start(FriseurAssistant())
+
+        # Benutzer möchte einen Termin buchen
+        result = await session.run(
+            user_input="Ich möchte gerne einen Herrenschnitt nächsten Samstag um 14 Uhr."
+        )
+
+        # Agent sollte zuerst get_system_time aufrufen
+        result.expect.skip_next_event_if(type="message", role="assistant")
+        result.expect.next_event().is_function_call(name="get_system_time")
+
+
+@pytest.mark.asyncio
+async def test_booking_flow_handles_relative_dates() -> None:
+    """Test dass der Agent relative Datumsangaben korrekt verarbeitet."""
+    async with (
+        _llm() as llm,
+        AgentSession(llm=llm) as session,
+    ):
+        await session.start(FriseurAssistant())
+
+        # Benutzer sagt "morgen"
+        result = await session.run(
+            user_input="Ich brauche morgen um 10 Uhr einen Termin für einen Damenschnitt kurz."
+        )
+
+        # Agent sollte get_system_time aufrufen und dann check_availability mit konkretem Datum
+        result.expect.skip_next_event_if(type="message", role="assistant")
+        result.expect.next_event().is_function_call(name="get_system_time")
+        result.expect.next_event().is_function_call_output()
+        
+        # Optional: Agent könnte jetzt nach mehr Informationen fragen oder direkt check_availability aufrufen
+        result.expect.skip_next_event_if(type="message", role="assistant")
+        result.expect.skip_next_event_if(type="function_call", name="check_availability")
