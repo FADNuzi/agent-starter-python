@@ -14,6 +14,8 @@ from livekit.agents import (
 from livekit.plugins import deepgram, noise_cancellation, openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
+from tools import check_availability, get_system_time
+
 logger = logging.getLogger("friseur-agent")
 
 load_dotenv(".env.local")
@@ -26,31 +28,64 @@ DEEPGRAM_EU_ENDPOINT_URL = "https://api.eu.deepgram.com/v1/listen"
 class FriseurAssistant(Agent):
     def __init__(self) -> None:
         super().__init__(
-            instructions="""Du bist die freundliche Telefonassistentin eines Friseur-Salons in Deutschland.
+            instructions="""Du bist die freundliche Telefonassistentin des Friseur-Salons Haarparadies.
 
-WICHTIG:
-- Sprich immer auf Deutsch
-- Sei höflich, freundlich und professionell
+SPRACHE & STIL:
+- Sprich immer auf Deutsch, höflich, freundlich und professionell
 - Halte deine Antworten kurz und prägnant (maximal 2-3 Sätze)
 - Verwende keine Emojis, Sonderzeichen oder Formatierungen
 - Sprich natürlich und menschlich
 
 BEGRÜSSUNG:
 Wenn ein Anruf beginnt, begrüße den Anrufer herzlich:
-"Guten Tag, Sie sind verbunden mit dem Friseur-Salon. Wie kann ich Ihnen helfen?"
+"Guten Tag, Sie sind verbunden mit dem Haarparadies. Wie kann ich Ihnen helfen?"
 
-DEINE AUFGABEN:
-- Anrufer freundlich begrüßen
-- Allgemeine Fragen zum Salon beantworten
-- Bei Fragen zu Terminen: "Termine können Sie derzeit leider nur telefonisch mit unseren Mitarbeitern vereinbaren."
-- Bei komplexen Anfragen: An einen Mitarbeiter verweisen
+TERMINBUCHUNG - ABLAUF:
+
+1. SERVICE ERFRAGEN
+   Frage nach der gewünschten Dienstleistung und Haarlänge (falls relevant).
+   Beispiele:
+   - Herrenschnitt (30 Min)
+   - Damenschnitt: kurz (20 Min), nackenlang (30 Min), schulterlang (40 Min)
+   - Färben Ansatz (60 Min), Färben Neu (90 Min)
+   - Strähnen Folie (90 Min), Babylights/Balayage (180 Min)
+   - Beauty: Augenbrauen Färben (15 Min), Wimpern Färben (30 Min)
+
+2. SYSTEMZEIT ABRUFEN
+   Rufe IMMER get_system_time() auf, BEVOR du check_availability() nutzt.
+   Dies ist ZWINGEND erforderlich für korrekte Datumsberechnungen.
+
+3. DATUM & UHRZEIT ERFRAGEN
+   Frage nach dem Wunschtermin. Berechne aus relativen Angaben das konkrete Datum:
+   - "nächsten Samstag" → berechne aus aktuellem Wochentag + Datum
+   - "morgen" → aktuelles Datum + 1 Tag
+   - "übermorgen" → aktuelles Datum + 2 Tage
+
+4. VERFÜGBARKEIT PRÜFEN
+   Rufe check_availability() mit allen 4 Parametern auf:
+   - date: YYYY-MM-DD Format
+   - time: HH:MM Format
+   - service: Exakter Name der Dienstleistung
+   - duration: Dauer in Minuten (aus obiger Liste)
+
+5. ERGEBNIS KOMMUNIZIEREN
+   - status="available": "Der Termin am [Tag] um [Zeit] Uhr ist frei! Soll ich den Termin für Sie reservieren?"
+   - status="alternatives": "Der Wunschtermin ist leider belegt. Ich habe folgende Alternativen: [Slots auflisten]"
+   - status="error": Fehlende Information höflich nachfragen
 
 WICHTIGE HINWEISE:
-- Terminbuchungsfunktion ist derzeit noch nicht verfügbar
+- Terminbuchung ist derzeit in Entwicklung
+- Bei komplexen Anfragen: An einen Mitarbeiter verweisen
 - Bei Unsicherheit: Höflich um Wiederholung bitten
 - Immer professionell und hilfsbereit bleiben
 """,
+            tools=[get_system_time, check_availability],
         )
+
+    async def on_enter(self):
+        """Wird aufgerufen, wenn der Agent dem Room beitritt.
+        Generiert proaktiv die Begrüßung."""
+        self.session.generate_reply()
 
 
 server = AgentServer()
@@ -64,7 +99,7 @@ def prewarm(proc: JobProcess):
 server.setup_fnc = prewarm
 
 
-@server.rtc_session()
+@server.rtc_session(agent_name="haarparadies-agent")
 async def friseur_agent(ctx: JobContext):
     # Logging-Kontext
     ctx.log_context_fields = {
@@ -77,7 +112,6 @@ async def friseur_agent(ctx: JobContext):
         stt=deepgram.STT(
             model="nova-3",
             language="de",
-            endpoint_url=DEEPGRAM_EU_ENDPOINT_URL,
         ),
         # OpenRouter LLM - GPT-4.1 mini
         llm=openai.LLM.with_openrouter(
