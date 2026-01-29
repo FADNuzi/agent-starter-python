@@ -129,6 +129,8 @@ async def friseur_agent(ctx: JobContext):
         vad=ctx.proc.userdata["vad"],
         # Preemptive generation für schnellere Antworten
         preemptive_generation=True,
+        # Endpointing Delay Tuning
+        min_endpointing_delay=0.3,
     )
 
     # ZUERST mit Room verbinden (damit room.sid verfügbar ist)
@@ -227,4 +229,6 @@ async def friseur_agent(ctx: JobContext):
 
 
 if __name__ == "__main__":
+    # Logging aktivieren, um Startup-Errors zu sehen
+    logging.basicConfig(level=logging.INFO)
     cli.run_app(server)
