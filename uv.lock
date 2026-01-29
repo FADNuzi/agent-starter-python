@@ -456,6 +456,7 @@ dependencies = [
     { name = "livekit-agents", extra = ["deepgram", "openai", "silero", "turn-detector"] },
     { name = "livekit-plugins-noise-cancellation" },
     { name = "python-dotenv" },
+    { name = "rich" },
     { name = "tzdata" },
 ]
 
@@ -471,6 +472,7 @@ requires-dist = [
     { name = "livekit-agents", extras = ["silero", "turn-detector", "openai", "deepgram"], specifier = "~=1.3" },
     { name = "livekit-plugins-noise-cancellation", specifier = "~=0.2" },
     { name = "python-dotenv" },
+    { name = "rich", specifier = ">=13.0" },
     { name = "tzdata", specifier = ">=2025.3" },
 ]
 

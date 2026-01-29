@@ -81,7 +81,7 @@ class TestCheckAvailability:
                 
                 result = await check_availability(
                     date="2026-02-15",
-                    time="14:30",
+                    time_slot="14:30",
                     service="Herrenschnitt",
                     duration=30,
                 )
@@ -113,7 +113,7 @@ class TestCheckAvailability:
                 
                 result = await check_availability(
                     date="2026-02-15",
-                    time="14:30",
+                    time_slot="14:30",
                     service="Herrenschnitt",
                     duration=30,
                 )
@@ -144,7 +144,7 @@ class TestCheckAvailability:
                 
                 result = await check_availability(
                     date="",
-                    time="14:30",
+                    time_slot="14:30",
                     service="Herrenschnitt",
                     duration=30,
                 )
@@ -158,7 +158,7 @@ class TestCheckAvailability:
         with patch("tools.N8N_CHECK_AVAILABILITY_WEBHOOK", None):
             result = await check_availability(
                 date="2026-02-15",
-                time="14:30",
+                time_slot="14:30",
                 service="Herrenschnitt",
                 duration=30,
             )

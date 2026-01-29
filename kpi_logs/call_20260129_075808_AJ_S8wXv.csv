@@ -1,0 +1,2 @@
+timestamp,call_id,room_name,duration_s,turn_count,tool_count,e2e_min_ms,e2e_avg_ms,e2e_max_ms,stt_avg_ms,llm_ttft_avg_ms,llm_dur_avg_ms,tts_ttfb_avg_ms,tts_dur_avg_ms
+2026-01-29T07:58:08.221695+01:00,AJ_S8wXvePVP7px,{unique-id},42.45,1,2,0,0,0,5000,596,1038,399,1759

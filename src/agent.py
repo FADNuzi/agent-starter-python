@@ -9,11 +9,13 @@ from livekit.agents import (
     JobContext,
     JobProcess,
     cli,
+    metrics,
     room_io,
 )
 from livekit.plugins import deepgram, noise_cancellation, openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
+from call_tracker import CallTracker
 from tools import check_availability, get_system_time
 
 logger = logging.getLogger("friseur-agent")
@@ -129,8 +131,75 @@ async def friseur_agent(ctx: JobContext):
         preemptive_generation=True,
     )
 
-    # ZUERST mit Room verbinden
+    # ZUERST mit Room verbinden (damit room.sid verfügbar ist)
     await ctx.connect()
+
+    # CallTracker initialisieren NACH connect (room.sid ist jetzt ein String)
+    call_tracker = CallTracker(
+        call_id=ctx.job.id,  # Job-ID als eindeutige Call-ID verwenden
+        room_name=ctx.room.name,
+    )
+
+    # =========================================================================
+    # METRICS EVENT HANDLERS
+    # =========================================================================
+
+    def on_metrics_collected(event):
+        """Handler für alle Pipeline-Metriken (STT, LLM, TTS, VAD, EOU).
+
+        Der Event ist ein MetricsCollectedEvent mit einem 'metrics' Attribut.
+        """
+        # Extrahiere die AgentMetrics aus dem Event
+        agent_metrics = event.metrics if hasattr(event, "metrics") else event
+        # An CallTracker weiterleiten (mit Verbose-Ausgabe)
+        call_tracker.record_metrics(agent_metrics)
+        # Auch an LiveKit Cloud Insights senden
+        metrics.log_metrics(agent_metrics)
+
+    # Event-Handler registrieren
+    session.on("metrics_collected", on_metrics_collected)
+
+    # =========================================================================
+    # E2E LATENZ TRACKING & TURN MANAGEMENT
+    # =========================================================================
+
+    # =========================================================================
+    # E2E LATENZ TRACKING & TURN MANAGEMENT
+    # =========================================================================
+
+    def on_user_speech_started(*args):
+        """Wird aufgerufen wenn der User anfängt zu sprechen."""
+        logger.info("⚡ EVENT: user_speech_started")
+        # Neuen Turn genau dann starten, wenn der User anfängt
+        call_tracker.start_new_turn()
+
+    def on_user_turn_completed(*args):
+        """Wird aufgerufen wenn der User aufhört zu sprechen."""
+        logger.info("⚡ EVENT: user_turn_completed")
+        call_tracker.mark_user_speech_end()
+
+    def on_agent_speech_started(*args):
+        """Wird aufgerufen wenn der Agent anfängt zu sprechen."""
+        logger.info("⚡ EVENT: agent_speech_started")
+        call_tracker.mark_first_agent_audio()
+
+    def on_agent_speech_stopped(*args):
+        """Wird aufgerufen wenn der Agent aufhört zu sprechen."""
+        logger.info("⚡ EVENT: agent_speech_stopped")
+
+    session.on("user_speech_started", on_user_speech_started)
+    session.on("user_turn_completed", on_user_turn_completed)
+    session.on("agent_speech_started", on_agent_speech_started)
+    session.on("agent_speech_stopped", on_agent_speech_stopped)
+
+    # =========================================================================
+    # SESSION LIFECYCLE
+    # =========================================================================
+
+    async def on_session_end():
+        """Wird aufgerufen wenn die Session endet."""
+        logger.info("Session ending, finalizing call tracker...")
+        await call_tracker.finalize()
 
     # DANN Session starten
     await session.start(
@@ -145,6 +214,16 @@ async def friseur_agent(ctx: JobContext):
             ),
         ),
     )
+
+    # Warten bis Session beendet wird (Participant disconnect)
+    @ctx.room.on("participant_disconnected")
+    def on_participant_disconnected(participant):
+        if participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP:
+            logger.info(f"SIP participant {participant.identity} disconnected")
+            # Session-Ende Handler aufrufen
+            import asyncio
+
+            asyncio.create_task(on_session_end())
 
 
 if __name__ == "__main__":

@@ -1,3 +1,9 @@
 
 1. Sperrtermine automatisch ändern oder jährlich -> fragen
 Sperrtage: Bestimmte Daten (z. B. 2026-11-02 sowie der Zeitraum vom 24.12.2026 bis 01.01.2027) sind komplett blockiert.
+
+2. KPI Messung an n8n webhook dashboard
+2.1 Benötigen Sie semantische KPIs wie:
+Erfolgreiche Terminbuchungen pro Anruf?
+Anzahl der Rückfragen?
+Abbrüche/Interruptions?
