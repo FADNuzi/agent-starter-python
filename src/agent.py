@@ -170,15 +170,31 @@ async def friseur_agent(ctx: JobContext):
     # =========================================================================
 
     def on_user_speech_started(*args):
-        """Wird aufgerufen wenn der User anfängt zu sprechen."""
+        """Wird aufgerufen wenn der User anfängt zu sprechen.
+        Startet nur einen neuen Turn wenn kein aktiver Turn existiert.
+        Das verhindert, dass VAD-Segmentierung zu viele Turns erzeugt."""
         logger.info("⚡ EVENT: user_speech_started")
-        # Neuen Turn genau dann starten, wenn der User anfängt
-        call_tracker.start_new_turn()
+        call_tracker.start_new_turn()  # Guard ist jetzt in start_new_turn() eingebaut
+
+    def on_user_state_changed(event):
+        """Wird aufgerufen wenn der User-State wechselt (speaking/listening/away)."""
+        logger.info(f"⚡ EVENT: user_state_changed -> {event.new_state}")
+        if event.new_state == "listening":
+            # User hat aufgehört zu sprechen - markiere Silence-Start
+            call_tracker.mark_silence_start()
 
     def on_user_turn_completed(*args):
-        """Wird aufgerufen wenn der User aufhört zu sprechen."""
+        """Wird aufgerufen wenn der User aufhört zu sprechen (EOU detected)."""
         logger.info("⚡ EVENT: user_turn_completed")
         call_tracker.mark_user_speech_end()
+
+    def on_user_input_transcribed(event):
+        """Wird aufgerufen bei STT-Transkription (partial + final)."""
+        if event.is_final:
+            logger.info(f"⚡ EVENT: user_input_transcribed (final): '{event.transcript}'")
+            call_tracker.mark_stt_final()
+        else:
+            logger.debug(f"⚡ EVENT: user_input_transcribed (partial): '{event.transcript}'")
 
     def on_agent_speech_started(*args):
         """Wird aufgerufen wenn der Agent anfängt zu sprechen."""
@@ -190,6 +206,8 @@ async def friseur_agent(ctx: JobContext):
         logger.info("⚡ EVENT: agent_speech_stopped")
 
     session.on("user_speech_started", on_user_speech_started)
+    session.on("user_state_changed", on_user_state_changed)
+    session.on("user_input_transcribed", on_user_input_transcribed)
     session.on("user_turn_completed", on_user_turn_completed)
     session.on("agent_speech_started", on_agent_speech_started)
     session.on("agent_speech_stopped", on_agent_speech_stopped)

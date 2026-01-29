@@ -90,6 +90,10 @@ class TurnMetrics:
     eou_delay_ms: float | None = None
     transcription_delay_ms: float | None = None
 
+    # Neue präzise Marker (ohne VAD-Segmentierung)
+    t_silence_start_ms: float | None = None  # user_state_changed -> listening
+    t_stt_final_ms: float | None = None  # user_input_transcribed with is_final=True
+
 
 class CallTracker:
     """
@@ -127,7 +131,12 @@ class CallTracker:
     # =========================================================================
 
     def start_new_turn(self) -> TurnMetrics:
-        """Startet einen neuen Turn."""
+        """Startet einen neuen Turn nur wenn kein aktiver Turn existiert."""
+        # Nur neuen Turn starten wenn KEIN offener Turn existiert oder der letzte abgeschlossen ist
+        if self._current_turn and self._current_turn.e2e_latency_ms is None:
+            logger.debug(f"Turn {self._turn_counter} already active, not starting new one")
+            return self._current_turn
+        
         self._turn_counter += 1
         self._current_turn = TurnMetrics(turn_id=self._turn_counter)
         self.turns.append(self._current_turn)
@@ -156,6 +165,19 @@ class CallTracker:
                 now - self._last_user_speech_end
             ) * 1000
             logger.debug(f"E2E Latency: {self._current_turn.e2e_latency_ms:.1f}ms")
+
+    def mark_silence_start(self) -> None:
+        """Markiert den Beginn der User-Stille (user_state_changed -> listening)."""
+        if self._current_turn:
+            # Immer überschreiben - wir wollen den LETZTEN silence start vor EOU
+            self._current_turn.t_silence_start_ms = time.time() * 1000
+            logger.debug(f"Silence start marked at {self._current_turn.t_silence_start_ms:.1f}ms")
+
+    def mark_stt_final(self) -> None:
+        """Markiert den finalen STT-Timestamp (user_input_transcribed is_final=True)."""
+        if self._current_turn:
+            self._current_turn.t_stt_final_ms = time.time() * 1000
+            logger.debug(f"STT final marked at {self._current_turn.t_stt_final_ms:.1f}ms")
 
     # =========================================================================
     # METRICS RECORDING
