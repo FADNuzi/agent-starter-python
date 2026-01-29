@@ -114,6 +114,7 @@ async def friseur_agent(ctx: JobContext):
         stt=deepgram.STT(
             model="nova-3",
             language="de",
+            endpointing_ms=300,  # P0: 300ms Stille → Final Transcript (reduziert E2E!)
         ),
         # OpenRouter LLM - GPT-4.1
         llm=openai.LLM.with_openrouter(
@@ -192,7 +193,7 @@ async def friseur_agent(ctx: JobContext):
         """Wird aufgerufen bei STT-Transkription (partial + final)."""
         if event.is_final:
             logger.info(f"⚡ EVENT: user_input_transcribed (final): '{event.transcript}'")
-            call_tracker.mark_stt_final()
+            call_tracker.mark_stt_final(event.transcript)  # P1: Transcript übergeben
         else:
             logger.debug(f"⚡ EVENT: user_input_transcribed (partial): '{event.transcript}'")
 

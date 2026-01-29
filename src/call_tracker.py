@@ -94,6 +94,10 @@ class TurnMetrics:
     t_silence_start_ms: float | None = None  # user_state_changed -> listening
     t_stt_final_ms: float | None = None  # user_input_transcribed with is_final=True
 
+    # P1/P2: Extended tracking
+    user_transcript: str | None = None  # User's speech transcript
+    segment_count: int = 0  # How many VAD segments in this turn
+
 
 class CallTracker:
     """
@@ -134,11 +138,13 @@ class CallTracker:
         """Startet einen neuen Turn nur wenn kein aktiver Turn existiert."""
         # Nur neuen Turn starten wenn KEIN offener Turn existiert oder der letzte abgeschlossen ist
         if self._current_turn and self._current_turn.e2e_latency_ms is None:
-            logger.debug(f"Turn {self._turn_counter} already active, not starting new one")
+            # Segment counter erhöhen für existierenden Turn
+            self._current_turn.segment_count += 1
+            logger.debug(f"Turn {self._turn_counter} already active, segment_count={self._current_turn.segment_count}")
             return self._current_turn
         
         self._turn_counter += 1
-        self._current_turn = TurnMetrics(turn_id=self._turn_counter)
+        self._current_turn = TurnMetrics(turn_id=self._turn_counter, segment_count=1)
         self.turns.append(self._current_turn)
         logger.debug(f"Turn {self._turn_counter} started")
         return self._current_turn
@@ -173,10 +179,11 @@ class CallTracker:
             self._current_turn.t_silence_start_ms = time.time() * 1000
             logger.debug(f"Silence start marked at {self._current_turn.t_silence_start_ms:.1f}ms")
 
-    def mark_stt_final(self) -> None:
+    def mark_stt_final(self, transcript: str) -> None:
         """Markiert den finalen STT-Timestamp (user_input_transcribed is_final=True)."""
         if self._current_turn:
             self._current_turn.t_stt_final_ms = time.time() * 1000
+            self._current_turn.user_transcript = transcript  # P1: User transcript speichern
             logger.debug(f"STT final marked at {self._current_turn.t_stt_final_ms:.1f}ms")
 
     # =========================================================================
@@ -248,6 +255,9 @@ class CallTracker:
                 if 1 < latency_ms < 10000:
                     self._current_turn.e2e_latency_ms = latency_ms
                     logger.info(f"E2E calculated via TTS Metrics: {latency_ms:.1f}ms")
+                    
+                    # P0: Turn Summary ausgeben sobald E2E berechnet wurde
+                    self.print_turn_summary()
 
     def _record_eou(self, metrics: EOUMetrics) -> None:
         """Erfasst EOU-Metriken (End of Utterance)."""
@@ -335,6 +345,78 @@ class CallTracker:
         console.print(
             f"[dim]{timestamp}[/dim] [{color}]{metrics_type:4}[/{color}] {detail}"
         )
+
+    def print_turn_summary(self) -> None:
+        """Gibt eine detaillierte Zusammenfassung für den aktuellen Turn aus (Option C - Verbose Block)."""
+        if not self._current_turn:
+            return
+
+        turn = self._current_turn
+        
+        # Nur ausgeben wenn Turn abgeschlossen ist (E2E vorhanden)
+        if turn.e2e_latency_ms is None:
+            return
+
+        # Finde zugehörige Tool-Calls für diesen Turn
+        turn_tools = []
+        for tc in self.tool_calls:
+            # Annahme: Tool-Calls gehören zum aktuellen Turn wenn sie zeitlich passen
+            # (bessere Zuordnung würde explizites Turn-Tracking in record_tool_call benötigen)
+            turn_tools.append(tc)
+
+        # Header
+        console.print("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        console.print(f"🎤 [bold cyan]TURN #{turn.turn_id} COMPLETED[/bold cyan]")
+        console.print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        # P1: User Input (first 60 chars)
+        if turn.user_transcript:
+            transcript_short = turn.user_transcript[:60]
+            if len(turn.user_transcript) > 60:
+                transcript_short += "..."
+            console.print(f"👤 User: \"{transcript_short}\"")
+        
+        # P0: Timings Table
+        timing_table = Table(title="⏱️  Timings", show_header=True, border_style="blue", box=None)
+        timing_table.add_column("Metric", style="dim", width=20)
+        timing_table.add_column("Value", justify="right", style="bold")
+
+        if turn.e2e_latency_ms is not None:
+            timing_table.add_row("E2E Latency", f"{turn.e2e_latency_ms:.0f}ms")
+        
+        if turn.eou_delay_ms is not None:
+            timing_table.add_row("EOU Delay", f"{turn.eou_delay_ms:.0f}ms")
+        
+        if turn.transcription_delay_ms is not None:
+            timing_table.add_row("STT Final", f"{turn.transcription_delay_ms:.0f}ms")
+        
+        if turn.llm_ttft_ms is not None:
+            timing_table.add_row("LLM TTFT", f"{turn.llm_ttft_ms:.0f}ms")
+        
+        if turn.tts_ttfb_ms is not None:
+            timing_table.add_row("TTS TTFB", f"{turn.tts_ttfb_ms:.0f}ms")
+
+        console.print(timing_table)
+
+        # P2: Diagnostic Info
+        if turn.t_silence_start_ms or turn.t_stt_final_ms or turn.segment_count > 1:
+            diagnostic_parts = []
+            if turn.segment_count > 1:
+                diagnostic_parts.append(f"Segments: {turn.segment_count}")
+            if turn.t_silence_start_ms:
+                diagnostic_parts.append(f"Silence@{turn.t_silence_start_ms:.0f}ms")
+            if turn.t_stt_final_ms:
+                diagnostic_parts.append(f"STT@{turn.t_stt_final_ms:.0f}ms")
+            
+            console.print(f"[dim]🔍 {' | '.join(diagnostic_parts)}[/dim]")
+
+        # P1: Tool Calls
+        if turn_tools:
+            for tc in turn_tools:
+                status_icon = "✅" if tc.success else "❌"
+                console.print(f"🔧 Tool: [bold]{tc.tool_name}[/bold] ({tc.latency_ms:.0f}ms) {status_icon}")
+        
+        console.print("")  # Leerzeile für Lesbarkeit
 
     # =========================================================================
     # AGGREGATION
@@ -567,6 +649,71 @@ class CallTracker:
         logger.info(f"KPI saved to CSV: {filepath}")
         return filepath
 
+    def save_turn_metrics_csv(self) -> Path:
+        """Speichert die per-Turn Metriken in einer separaten CSV-Datei (P0)."""
+        CSV_OUTPUT_DIR.mkdir(exist_ok=True)
+
+        timestamp = datetime.now(TIMEZONE).strftime("%Y%m%d_%H%M%S")
+        filepath = CSV_OUTPUT_DIR / f"turn_metrics_{timestamp}_{self.call_id[:8]}.csv"
+
+        # Header definieren
+        fieldnames = [
+            "call_id",
+            "turn_id",
+            "timestamp",
+            "user_transcript",
+            "e2e_ms",
+            "eou_delay_ms",
+            "transcription_delay_ms",
+            "llm_ttft_ms",
+            "llm_duration_ms",
+            "tts_ttfb_ms",
+            "tts_duration_ms",
+            "t_silence_start_ms",
+            "t_stt_final_ms",
+            "segment_count",
+            "has_tool",
+            "tool_name",
+            "tool_latency_ms",
+        ]
+
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+
+            for turn in self.turns:
+                # Finde Tool-Calls für diesen Turn (vereinfachte Zuordnung)
+                turn_tool = None
+                for tc in self.tool_calls:
+                    # Nimm das erste Tool das zeitlich passt
+                    # TODO: Bessere Zuordnung durch Turn-ID in ToolCallMetrics
+                    turn_tool = tc
+                    break
+
+                row = {
+                    "call_id": self.call_id,
+                    "turn_id": turn.turn_id,
+                    "timestamp": datetime.now(TIMEZONE).isoformat(),
+                    "user_transcript": turn.user_transcript or "",
+                    "e2e_ms": f"{turn.e2e_latency_ms:.0f}" if turn.e2e_latency_ms else "",
+                    "eou_delay_ms": f"{turn.eou_delay_ms:.0f}" if turn.eou_delay_ms else "",
+                    "transcription_delay_ms": f"{turn.transcription_delay_ms:.0f}" if turn.transcription_delay_ms else "",
+                    "llm_ttft_ms": f"{turn.llm_ttft_ms:.0f}" if turn.llm_ttft_ms else "",
+                    "llm_duration_ms": f"{turn.llm_duration_ms:.0f}" if turn.llm_duration_ms else "",
+                    "tts_ttfb_ms": f"{turn.tts_ttfb_ms:.0f}" if turn.tts_ttfb_ms else "",
+                    "tts_duration_ms": f"{turn.tts_duration_ms:.0f}" if turn.tts_duration_ms else "",
+                    "t_silence_start_ms": f"{turn.t_silence_start_ms:.0f}" if turn.t_silence_start_ms else "",
+                    "t_stt_final_ms": f"{turn.t_stt_final_ms:.0f}" if turn.t_stt_final_ms else "",
+                    "segment_count": turn.segment_count,
+                    "has_tool": "yes" if turn_tool else "no",
+                    "tool_name": turn_tool.tool_name if turn_tool else "",
+                    "tool_latency_ms": f"{turn_tool.latency_ms:.0f}" if turn_tool else "",
+                }
+                writer.writerow(row)
+
+        logger.info(f"Turn metrics saved to CSV: {filepath}")
+        return filepath
+
     # =========================================================================
     # OUTPUT: WEBHOOK
     # =========================================================================
@@ -605,6 +752,7 @@ class CallTracker:
         self.end_time = time.time()
         self.print_summary()
         self.save_to_csv()
+        self.save_turn_metrics_csv()  # P0: Turn-level CSV
         await self.send_to_webhook()
 
         # Globale Instanz zurücksetzen

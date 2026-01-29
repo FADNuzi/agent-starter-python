@@ -1,0 +1,6 @@
+call_id,turn_id,timestamp,user_transcript,e2e_ms,eou_delay_ms,transcription_delay_ms,llm_ttft_ms,llm_duration_ms,tts_ttfb_ms,tts_duration_ms,t_silence_start_ms,t_stt_final_ms,segment_count,has_tool,tool_name,tool_latency_ms
+AJ_qJhtL8YunpnS,1,2026-01-29T12:22:28.384251+01:00,würd gerne für Samstag einen Haarschnitttermin ausmachen.,2884,837,676,618,1209,213,2721,1769685644536,1769685644658,1,yes,get_system_time,0
+AJ_qJhtL8YunpnS,2,2026-01-29T12:22:28.384251+01:00,"um neun Uhr, wenn's geht.",6965,1188,625,775,2157,433,3964,1769685663786,1769685663857,1,yes,get_system_time,0
+AJ_qJhtL8YunpnS,3,2026-01-29T12:22:28.384251+01:00,Welches Datum hat denn der Samstag?,1562,1092,337,725,1083,215,2430,1769685717400,1769685717170,1,yes,get_system_time,0
+AJ_qJhtL8YunpnS,4,2026-01-29T12:22:28.384251+01:00,"Ja, um neun Uhr.",3553,1404,877,634,1553,224,4589,1769685729886,1769685730216,1,yes,get_system_time,0
+AJ_qJhtL8YunpnS,5,2026-01-29T12:22:28.384251+01:00,,,,,,,,,,,1,yes,get_system_time,0
